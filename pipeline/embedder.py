@@ -7,11 +7,10 @@ import numpy as np
 _model = None
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model():
     """
     Loads the embedding model the first time it's needed, then reuses it because Streamlit reruns the whole file on every user interaction.
-    If we loaded the model at the top, it would reload from disk every time. This function checks if the model is already loaded and only loads it once.
-    This pattern is called a "singleton", there is only ever one instance of the model in memory.
+    If we loaded the model at the top, it would reload from disk every time. This function checks if the model is already loaded and only loads it once. This pattern is called a "singleton", there is only ever one instance of the model in memory.
     """
     global _model # 'global' tells Python: when we say _model inside this function, we mean the _model noticeboard at the top of the file — NOT a new local variable that only exists inside this function.
     if _model is None: # If _model is still None, nobody has loaded it yet — load it now. Next time this function is called, _model will already be set, so we skip straight to the return.
