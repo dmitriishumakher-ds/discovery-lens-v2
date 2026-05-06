@@ -1,0 +1,122 @@
+{
+  "goal": "Increase net promoter score",
+  "opportunities": [
+    {
+      "jtbd": "When I use a banking app, I want to have a seamless and easy experience, so I can manage my finances with confidence.",
+      "cluster_id": 0,
+      "solutions": [
+        {
+          "label": "Simplify navigation and features",
+          "assumptions": [
+            {
+              "text": "Users are frustrated with the complexity of the app and would engage more if it were easier to use.",
+              "risk": "medium"
+            }
+          ]
+        },
+        {
+          "label": "Improve feedback and notifications",
+          "assumptions": [
+            {
+              "text": "Users feel informed and in control when they receive timely and relevant updates about their account activity.",
+              "risk": "low"
+            }
+          ]
+        },
+        {
+          "label": "Enhance customer support",
+          "assumptions": [
+            {
+              "text": "Users appreciate helpful and responsive support, which builds trust and loyalty in the app.",
+              "risk": "high"
+            }
+          ]
+        }
+      ],
+      "importance": 0.4293,
+      "satisfaction": 0.7546,
+      "source_type_diversity": 0.3333,
+      "odi_score": 0.1053,
+      "evidence_robustness": 0.3669,
+      "priority_score": 0.21
+    },
+    {
+      "jtbd": "When I need to send money internationally, I want to have a smooth and reliable experience, so I can trust that my transactions will be processed efficiently.",
+      "cluster_id": 1,
+      "solutions": [
+        {
+          "label": "Streamline international transfer process",
+          "assumptions": [
+            {
+              "text": "Users are frustrated with the current process and would appreciate a more straightforward and efficient experience.",
+              "risk": "medium"
+            }
+          ]
+        },
+        {
+          "label": "Provide clear and timely updates on transfer status",
+          "assumptions": [
+            {
+              "text": "Users want to stay informed about the status of their transactions and appreciate transparency and communication from the app.",
+              "risk": "low"
+            }
+          ]
+        },
+        {
+          "label": "Offer multilingual support for international users",
+          "assumptions": [
+            {
+              "text": "Users who speak different languages may face barriers in using the app and would benefit from support in their native language.",
+              "risk": "high"
+            }
+          ]
+        }
+      ],
+      "importance": 0.2879,
+      "satisfaction": 0.6278,
+      "source_type_diversity": 1.0,
+      "odi_score": 0.1071,
+      "evidence_robustness": 0.7508,
+      "priority_score": 0.3646
+    },
+    {
+      "jtbd": "When I encounter issues with my account, I want to receive prompt and helpful support, so I can resolve the problem quickly and get back to using the app with confidence.",
+      "cluster_id": 2,
+      "solutions": [
+        {
+          "label": "Implement a more responsive and empathetic support system",
+          "assumptions": [
+            {
+              "text": "Users feel frustrated and abandoned when they don't receive timely and helpful support, which erodes trust in the app.",
+              "risk": "high"
+            }
+          ]
+        },
+        {
+          "label": "Provide clear and concise communication about account issues and resolutions",
+          "assumptions": [
+            {
+              "text": "Users appreciate transparency and clear explanations when issues arise and are resolved, which helps to build trust and confidence in the app.",
+              "risk": "medium"
+            }
+          ]
+        },
+        {
+          "label": "Offer proactive measures to prevent account issues and errors",
+          "assumptions": [
+            {
+              "text": "Users would appreciate measures that prevent issues from arising in the first place, such as robust security measures and clear guidelines for using the app.",
+              "risk": "low"
+            }
+          ]
+        }
+      ],
+      "importance": 0.2828,
+      "satisfaction": 0.4854,
+      "source_type_diversity": 1.0,
+      "odi_score": 0.1455,
+      "evidence_robustness": 0.749,
+      "priority_score": 0.3869
+    }
+  ]
+}
