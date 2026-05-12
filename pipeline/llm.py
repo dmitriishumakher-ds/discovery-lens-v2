@@ -4,8 +4,8 @@ DATA CONTRACT (see docs/data_contracts.md):
     Output: OST dict {goal, opportunities: [...]} with all score fields injected
 
 Models:
-    Primary:  llama-3.1-8b-instant
-    Fallback: llama-3.3-70b-versatile
+    Primary:  llama-3.3-70b-versatile
+    Fallback: llama-3.1-8b-instant
 
 Score fields injected post-parse from scored_clusters (never LLM-generated):
     importance, satisfaction, source_type_diversity,
@@ -86,17 +86,104 @@ def _call_groq(client: Groq, model: str, system: str, user: str) -> str:
 
 def _parse_json(raw: str) -> dict:
     """
-    Parse JSON from LLM response.
-    Strips accidental markdown fences and trailing commas before parsing.
-    Raises json.JSONDecodeError on failure so the caller can retry.
+    Attempt to parse JSON from an LLM response using a cascade of repair
+    strategies. Each strategy tries to recover from a different class of
+    LLM formatting mistake.
+
+    Repair cascade (stops at the first success):
+        0. Fence stripping     — model wrapped JSON in ```...``` blocks
+        1. Clean parse         — response was already valid JSON after fence strip
+        2. raw_decode          — model added preamble text before the opening brace,
+                                 or appended explanation text after the closing brace
+        3. Trailing commas     — model emitted trailing commas before ] or }
+        4. raw_decode + commas — model did both: preamble/suffix AND trailing commas
+
+    Raises json.JSONDecodeError only when all four strategies fail, so that
+    the caller (build_ost) can escalate to the fallback model.
     """
+
+    # ── Repair 0: strip markdown fences ──────────────────────────────────────
+    # Some models wrap their JSON in ```json ... ``` even when told not to.
+    # We strip the fence lines so subsequent parse attempts work on clean text.
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
+        # Drop the opening fence line; also drop the closing ``` line if present.
         cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    # Remove trailing commas before ] or } — LLMs occasionally emit these
-    cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
-    return json.loads(cleaned)
+
+    # ── Repair 1: clean parse ─────────────────────────────────────────────────
+    # Best case: the response was valid JSON after fence stripping. Try first
+    # before attempting any heavier repairs.
+    try:
+        result = json.loads(cleaned)
+        print("[llm] JSON parsed cleanly (no repairs needed)")
+        return result
+    except json.JSONDecodeError:
+        # Not valid JSON as-is — continue to repair strategies below.
+        pass
+
+    # ── Repair 2: raw_decode from first '{' ───────────────────────────────────
+    # json.JSONDecoder.raw_decode(s, idx) starts decoding at position idx and
+    # stops as soon as it has read one complete JSON value, ignoring everything
+    # after it. This handles two failure modes in a single step:
+    #   (a) Preamble text — model says "Here is your JSON:" before the brace.
+    #   (b) Trailing text — model appends "Let me know if..." after the brace.
+    # By starting at the first '{' we skip the preamble; raw_decode ignores
+    # anything beyond the closing '}' automatically.
+    brace_pos = cleaned.find("{")
+    if brace_pos != -1:
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(cleaned, brace_pos)
+            print(
+                f"[llm] JSON repair succeeded via: raw_decode "
+                f"(skipped {brace_pos} chars of preamble)"
+            )
+            return obj
+        except json.JSONDecodeError:
+            # The JSON block itself is malformed — try more repairs below.
+            pass
+
+    # ── Repair 3: trailing comma removal ─────────────────────────────────────
+    # LLMs occasionally emit trailing commas before ] or } — valid in many
+    # languages but illegal in JSON. A simple regex catches the common cases:
+    #   {"key": "value",}   →  {"key": "value"}
+    #   ["a", "b",]         →  ["a", "b"]
+    # We apply the regex to the full cleaned string, then retry json.loads.
+    comma_cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+    try:
+        result = json.loads(comma_cleaned)
+        print("[llm] JSON repair succeeded via: trailing comma removal")
+        return result
+    except json.JSONDecodeError:
+        # Still not valid — try combining both repairs.
+        pass
+
+    # ── Repair 4: raw_decode + trailing comma removal ─────────────────────────
+    # Last-ditch: the model added preamble/trailing text AND trailing commas.
+    # Slice from the first '{', strip trailing commas, then use raw_decode.
+    # raw_decode is used again (rather than json.loads) to also tolerate any
+    # remaining trailing text after the repaired closing brace.
+    if brace_pos != -1:
+        try:
+            slice_from_brace = cleaned[brace_pos:]
+            # Strip trailing commas in the sliced block first.
+            slice_comma_cleaned = re.sub(r",\s*([}\]])", r"\1", slice_from_brace)
+            obj, _ = json.JSONDecoder().raw_decode(slice_comma_cleaned, 0)
+            print("[llm] JSON repair succeeded via: raw_decode + trailing comma removal")
+            return obj
+        except json.JSONDecodeError:
+            pass
+
+    # ── All repairs failed ────────────────────────────────────────────────────
+    # Raise so build_ost can escalate to the fallback model. We surface the
+    # original raw text in the message to make debugging easier.
+    print("[llm] All JSON repair strategies failed — escalating to fallback model")
+    raise json.JSONDecodeError(
+        f"All repair strategies exhausted. Raw response (first 300 chars): "
+        f"{raw[:300]!r}",
+        raw,
+        0,
+    )
 
 
 def _merge_scores(ost: dict, scored_clusters: list[dict]) -> dict:
@@ -145,22 +232,60 @@ def build_ost(
     system = _load_system_prompt()
     user = _build_user_message(clusters, goal)
 
-    # --- Primary model attempt ---
+    # ── Primary model attempt ─────────────────────────────────────────────────
+    # We separate the API call from the JSON parse so we can distinguish two
+    # very different failure modes:
+    #   - APIStatusError: the request itself failed (rate limit, token limit,
+    #     network issue). Repair strategies are useless here — go straight to
+    #     the fallback model.
+    #   - json.JSONDecodeError: we got a response but it wasn't valid JSON even
+    #     after _parse_json exhausted all repair strategies. Also fall back, but
+    #     for a different reason.
     try:
         raw = _call_groq(client, _PRIMARY_MODEL, system, user)
-        ost = _parse_json(raw)
-    except (json.JSONDecodeError, APIStatusError):
-        # Fall back on bad JSON or API errors (e.g. 413 token-limit on free tier)
-        raw = _call_groq(client, _FALLBACK_MODEL, system, user)
+    except APIStatusError as e:
+        # API-level failure (e.g. 413 token limit on free tier, 429 rate limit).
+        # No point running repair logic — the model never sent a response body.
+        # Log and immediately try the fallback model.
+        print(f"[llm] Primary model API error ({e.status_code}), switching to fallback")
+        raw = None
+
+    if raw is not None:
+        # We have a response — run the full repair cascade before giving up.
         try:
             ost = _parse_json(raw)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
+            # _parse_json already logged the failure and tried every repair.
+            # Now escalate to the fallback model.
+            print(f"[llm] Primary model JSON unrecoverable, switching to fallback")
+            raw = None  # signal to the fallback block below
+
+    if raw is None:
+        # ── Fallback model attempt ────────────────────────────────────────────
+        # We reach here either because the primary API call failed, or because
+        # _parse_json could not recover the primary response.
+        # The fallback model (8b) is smaller and faster but less reliable for
+        # complex JSON — so we still run the full repair cascade on its response.
+        try:
+            raw_fallback = _call_groq(client, _FALLBACK_MODEL, system, user)
+        except APIStatusError as e:
             raise RuntimeError(
-                f"Both {_PRIMARY_MODEL} and {_FALLBACK_MODEL} returned invalid JSON. "
-                f"Last error: {e}\nLast raw response:\n{raw}"
+                f"Fallback model API error ({e.status_code}). "
+                "Check GROQ_API_KEY and request size."
             ) from e
 
-    # --- Inject scores — never trust the LLM to compute these ---
+        try:
+            ost = _parse_json(raw_fallback)
+        except json.JSONDecodeError as e:
+            # Both models and all repair strategies failed. Surface the raw
+            # response so the developer can diagnose the prompt/model issue.
+            raise RuntimeError(
+                f"Both {_PRIMARY_MODEL} and {_FALLBACK_MODEL} returned invalid JSON "
+                f"after all repair strategies. Last error: {e}\n"
+                f"Last raw response:\n{raw_fallback}"
+            ) from e
+
+    # ── Inject scores — never trust the LLM to compute these ─────────────────
     ost = _merge_scores(ost, scored_clusters)
 
     return ost
