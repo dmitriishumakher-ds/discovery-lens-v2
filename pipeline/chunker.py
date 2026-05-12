@@ -178,4 +178,15 @@ def chunk_text(raw_text: str, filename: str, source_type: str) -> list[dict]:
             }
         )
 
-    return chunks
+    # --- T-01: deduplicate on chunk text within this file ---
+    # Catches near-identical documents (e.g. someone uploads the same
+    # content under two different filenames). The MD5 guard in 2_upload.py
+    # catches exact-byte duplicates; this catches text duplicates.
+    seen_texts: set[str] = set()
+    unique_chunks: list[dict] = []
+    for chunk in chunks:
+        if chunk["text"] not in seen_texts:
+            seen_texts.add(chunk["text"])
+            unique_chunks.append(chunk)
+
+    return unique_chunks
