@@ -42,15 +42,26 @@ _sentiment = hf_pipeline(
 )
 
 # Weights — defined as constants so they are easy to tune and review
-_DIVERSITY_WEIGHT = 0.65       # evidence_robustness: source_type_diversity component
-_SIZE_WEIGHT = 0.35            # evidence_robustness: normalised cluster size component
-_ODI_WEIGHT = 0.60             # priority_score: ODI component
-_EVIDENCE_WEIGHT = 0.40        # priority_score: evidence robustness component
+_DIVERSITY_WEIGHT = 0.65  # evidence_robustness: source_type_diversity component
+_SIZE_WEIGHT = 0.35  # evidence_robustness: normalised cluster size component
+_ODI_WEIGHT = 0.60  # priority_score: ODI component
+_EVIDENCE_WEIGHT = 0.40  # priority_score: evidence robustness component
 
-# Fixed denominator — total recognised source types in the enum
-# Updated May 13 2026: expanded from 4 to 6 source types
-# interview, review, ticket, usability, social, internal
-_TOTAL_SOURCE_TYPES = 6
+# Source-type enum recognised by the system (expanded May 13 2026: 4 → 6 types).
+# Kept in sync with the source_type contract in chunker.py / extractor.py.
+# Used as a FIXED denominator for source_type_diversity so the metric is:
+#   - stable across sessions (does not shrink when the user uploads fewer source types)
+#   - honest when only one source type is present (will not collapse to 1.0)
+#   - comparable across runs and PMs
+KNOWN_SOURCE_TYPES: tuple[str, ...] = (
+    "interview",
+    "review",
+    "ticket",
+    "usability",
+    "social",
+    "internal",
+)
+KNOWN_SOURCE_TYPES_COUNT: int = len(KNOWN_SOURCE_TYPES)
 
 
 def _score_to_compound(result: dict) -> float:
@@ -159,21 +170,24 @@ def score_clusters(
         }
         unique_in_cluster: int = len(cluster_source_types)
 
-        # Fixed denominator of 6 — total recognised source types in the enum
-        source_type_diversity: float = unique_in_cluster / _TOTAL_SOURCE_TYPES
+        # Normalise against the FIXED count of source types the system recognises,
+        # not against the unique types present in the current upload.
+        # See KNOWN_SOURCE_TYPES_COUNT at the top of this module for why.
+        source_type_diversity: float = unique_in_cluster / KNOWN_SOURCE_TYPES_COUNT
 
-        evidence_robustness: float = (
-            (source_type_diversity * _DIVERSITY_WEIGHT)
-            + (importance * _SIZE_WEIGHT)
+        # Normalised size is the same value as importance — explicit for clarity
+        normalised_size: float = importance
+
+        evidence_robustness: float = (source_type_diversity * _DIVERSITY_WEIGHT) + (
+            normalised_size * _SIZE_WEIGHT
         )
 
         # ------------------------------------------------------------------ #
         # PRIORITY SCORE                                                       #
         # ------------------------------------------------------------------ #
 
-        priority_score: float = (
-            (odi_score * _ODI_WEIGHT)
-            + (evidence_robustness * _EVIDENCE_WEIGHT)
+        priority_score: float = (odi_score * _ODI_WEIGHT) + (
+            evidence_robustness * _EVIDENCE_WEIGHT
         )
 
         scored.append(

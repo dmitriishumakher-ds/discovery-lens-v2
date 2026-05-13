@@ -13,6 +13,9 @@ Constraints (see CLAUDE.md):
     - Soft cap of ~500 chunks per session (Streamlit Cloud memory)
     - Source types: "interview" | "review" | "ticket" | "usability"
 """
+
+import hashlib
+
 import streamlit as st
 
 from pipeline.extractor import extract_text
@@ -28,6 +31,11 @@ MAX_CHUNKS_SOFT = 500
 
 st.set_page_config(page_title="Upload — Discovery Lens", page_icon="📂")
 st.title("📂 Upload your discovery files")
+
+# Track file hashes across the session so we can warn about re-uploads.
+# Stored in session_state because Streamlit reruns the script on every interaction.
+if "file_hashes" not in st.session_state:
+    st.session_state["file_hashes"] = set()
 
 # --- Goal guard --------------------------------------------------------------
 # Per the multi-page flow: user must set a goal (page 1) before uploading.
@@ -49,7 +57,7 @@ source_type = st.selectbox(
     "Source type for these files",
     options=SOURCE_TYPES,
     help="Tag every file in this batch with the same source type. "
-         "Upload different source types in separate batches.",
+    "Upload different source types in separate batches.",
 )
 
 uploaded_files = st.file_uploader(
@@ -70,6 +78,7 @@ if st.button("▶ Run pipeline", type="primary"):
 
     all_chunks: list[dict] = []
     failed_files: list[tuple[str, str]] = []  # (filename, error_message)
+    skipped_duplicates: list[str] = []  # filenames skipped because already uploaded
 
     progress = st.progress(0.0, text="Starting…")
     total = len(uploaded_files)
@@ -79,6 +88,19 @@ if st.button("▶ Run pipeline", type="primary"):
             (idx - 1) / total,
             text=f"Processing {file.name} ({idx}/{total})",
         )
+
+        # --- Duplicate file detection (T-01) ---
+        # Hash the file content before extraction. If we've seen this exact
+        # bytes-blob before in this session, skip it. Catches accidental
+        # re-uploads of the same file (different paths, different names).
+        file_bytes = file.getvalue()
+        file_hash = hashlib.md5(file_bytes).hexdigest()
+
+        if file_hash in st.session_state["file_hashes"]:
+            skipped_duplicates.append(file.name)
+            continue
+
+        st.session_state["file_hashes"].add(file_hash)
 
         try:
             raw_text = extract_text(file, source_type)
@@ -115,6 +137,13 @@ if st.button("▶ Run pipeline", type="primary"):
         )
     else:
         st.error("No chunks were produced from this batch.")
+
+    if skipped_duplicates:
+        st.warning(
+            f"⏭️ Skipped {len(skipped_duplicates)} duplicate file(s) "
+            f"(already uploaded in this session): "
+            f"{', '.join(skipped_duplicates)}"
+        )
 
     if failed_files:
         with st.expander(f"⚠️ {len(failed_files)} file(s) failed", expanded=True):
