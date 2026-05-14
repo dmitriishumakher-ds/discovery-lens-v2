@@ -13,6 +13,7 @@ DEMO_OST = {
             "jtbd": "When I finish user interviews, I want to spot recurring themes quickly, so I can brief my team without spending a day in spreadsheets.",
             "cluster_id": 0, "importance": 0.42, "satisfaction": 0.27, "source_type_diversity": 0.75,
             "odi_score": 0.31, "evidence_robustness": 0.64, "priority_score": 0.44,
+            "job_type": "functional", "jtbd_confidence": "high", "jtbd_confidence_reason": "Supported by 4 source types with consistent framing across interviews and tickets.",
             "solutions": [
                 {"label": "Auto-cluster on upload", "assumptions": [{"text": "Users upload consistently", "risk": "low"}]},
                 {"label": "JTBD summary card", "assumptions": [{"text": "LLM output is reliable", "risk": "medium"}]},
@@ -23,6 +24,7 @@ DEMO_OST = {
             "jtbd": "When I present findings to stakeholders, I want to show which quotes back each insight, so I can defend prioritisation decisions.",
             "cluster_id": 1, "importance": 0.35, "satisfaction": 0.40, "source_type_diversity": 0.50,
             "odi_score": 0.21, "evidence_robustness": 0.45, "priority_score": 0.31,
+            "job_type": "social", "jtbd_confidence": "medium", "jtbd_confidence_reason": "Theme appears in interviews and reviews but framing varies across participants.",
             "solutions": [
                 {"label": "Quote traceability panel", "assumptions": [{"text": "Source map is complete", "risk": "low"}]},
                 {"label": "Exportable evidence map", "assumptions": [{"text": "Export format is agreed", "risk": "medium"}]},
@@ -32,6 +34,7 @@ DEMO_OST = {
             "jtbd": "When I'm juggling multiple data sources, I want a single place to upload everything, so I can avoid stitching files manually.",
             "cluster_id": 2, "importance": 0.31, "satisfaction": 0.50, "source_type_diversity": 0.50,
             "odi_score": 0.16, "evidence_robustness": 0.43, "priority_score": 0.27,
+            "job_type": "functional", "jtbd_confidence": "medium", "jtbd_confidence_reason": "Consistent theme across tickets and usability notes but limited interview coverage.",
             "solutions": [
                 {"label": "Multi-file drag-drop", "assumptions": [{"text": "File formats are supported", "risk": "low"}]},
                 {"label": "Source type tagging", "assumptions": [{"text": "Users tag correctly", "risk": "low"}]},
@@ -41,6 +44,7 @@ DEMO_OST = {
             "jtbd": "When I share an OST with my team, I want them to understand the scoring logic, so I can get buy-in without a long explanation.",
             "cluster_id": 3, "importance": 0.22, "satisfaction": 0.54, "source_type_diversity": 0.25,
             "odi_score": 0.10, "evidence_robustness": 0.24, "priority_score": 0.16,
+            "job_type": "emotional", "jtbd_confidence": "low", "jtbd_confidence_reason": "Only 3 chunks reference this theme — insufficient evidence for high confidence.",
             "solutions": [
                 {"label": "Inline score tooltip", "assumptions": [{"text": "Tooltip is discoverable", "risk": "medium"}]},
                 {"label": "JSON export", "assumptions": [{"text": "Team reads JSON", "risk": "low"}]},
@@ -151,6 +155,19 @@ with tab_ost:
         unsafe_allow_html=True,
     )
 
+    # ── Recommendation label logic (T-15 Steps 1, 2, 4) ──────────────────────
+    _THRESHOLD = 0.5
+    _REC = {
+        ("high", "high"): ("Act",          "#639922", "Strong unmet need with robust cross-source evidence. Move this to your roadmap now."),
+        ("high", "low"):  ("Validate",     "#EF9F27", "Strong unmet need but thin evidence. Run a quick study to confirm before committing."),
+        ("low",  "high"): ("Monitor",      "#0C447C", "Well-evidenced theme but need appears satisfied. Watch for shifts over time."),
+        ("low",  "low"):  ("Deprioritise", "#888888", "Weak signal and low evidence. Park this and revisit if more data surfaces."),
+    }
+
+    def _recommendation(odi: float, rob: float) -> tuple[str, str, str]:
+        key = ("high" if odi >= _THRESHOLD else "low", "high" if rob >= _THRESHOLD else "low")
+        return _REC[key]
+
     # ── Opportunity cards (3 per row) ─────────────────────────────────────────
     SOURCE_DOT = {"interview": "#534AB7", "review": "#0C447C", "ticket": "#639922",
                   "usability": "#EF9F27", "sales": "#E24B4A", "other": "#888888"}
@@ -179,6 +196,19 @@ with tab_ost:
                 f'</div>'
             )
 
+        rec_label, rec_color, rec_tooltip = _recommendation(odi, rob)
+
+        # job_type badge
+        job_type = opp.get("job_type", "")
+        _job_colors = {"functional": "#534AB7", "emotional": "#E24B4A", "social": "#0C447C"}
+        job_color = _job_colors.get(job_type, "#888888")
+
+        # jtbd_confidence badge
+        confidence = opp.get("jtbd_confidence", "")
+        confidence_reason = opp.get("jtbd_confidence_reason", "")
+        _conf_colors = {"high": "#639922", "medium": "#EF9F27", "low": "#E24B4A"}
+        conf_color = _conf_colors.get(confidence, "#888888")
+
         chips_html = "".join(
             f'<span style="font-size:10px;background:#EEEDFE;color:#534AB7;'
             f'padding:3px 9px;border-radius:20px;margin:2px 3px 2px 0;display:inline-block;">'
@@ -192,7 +222,21 @@ with tab_ost:
             f'<div style="position:absolute;top:12px;right:12px;font-size:9px;font-weight:700;'
             f'background:{rank_bg};color:{rank_color};padding:2px 8px;border-radius:20px;">{rank_label}</div>'
             f'<div style="font-size:12px;font-weight:600;color:#26215C;line-height:1.45;'
-            f'margin-bottom:14px;padding-right:70px;">{opp["jtbd"]}</div>'
+            f'margin-bottom:10px;padding-right:70px;">{opp["jtbd"]}</div>'
+            f'<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:5px;">'
+            f'<span title="{rec_tooltip}" style="font-size:10px;font-weight:700;'
+            f'background:{rec_color};color:#FFFFFF;padding:3px 10px;border-radius:20px;'
+            f'cursor:help;letter-spacing:0.04em;">{rec_label}</span>'
+            + (f'<span style="font-size:10px;font-weight:600;background:{job_color}22;'
+               f'color:{job_color};border:1px solid {job_color}55;padding:3px 10px;'
+               f'border-radius:20px;letter-spacing:0.04em;">{job_type.capitalize()}</span>'
+               if job_type else "")
+            + (f'<span title="{confidence_reason}" style="font-size:10px;font-weight:600;'
+               f'background:{conf_color}22;color:{conf_color};border:1px solid {conf_color}55;'
+               f'padding:3px 10px;border-radius:20px;cursor:help;letter-spacing:0.04em;">'
+               f'{confidence.capitalize()} confidence</span>'
+               if confidence else "")
+            + f'</div>'
             + score_bar("Priority score (final ranking)", ps, "#E24B4A")
             + score_bar("ODI score (unmet need)", odi, "#534AB7")
             + score_bar("Evidence robustness (source diversity)", rob, "#0C447C")
