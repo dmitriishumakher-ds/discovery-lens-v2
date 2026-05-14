@@ -79,12 +79,23 @@ embeddings: np.ndarray    # output of embedder.py
 [
   {
     "cluster_id": int,
-    "representative_chunks": list[dict],   # top 3 chunks closest to centroid (full chunk dicts)
-    "all_chunk_ids": list[str]             # all chunk_ids belonging to this cluster
+    "representative_chunks": list[dict],   # top 3 chunks by HDBSCAN membership probability (cluster core)
+    "boundary_chunks": list[dict],          # 1 chunk with lowest membership probability (outlier signal — consumed by T-10)
+    "all_chunk_ids": list[str],             # all chunk_ids belonging to this cluster
+    "membership_scores": dict[str, float],  # chunk_id → HDBSCAN membership probability, range 0.0–1.0
   },
   ...
 ]
 ```
+
+Notes:
+- **Algorithm:** BERTopic with UMAP (5 dims, cosine metric, `min_dist=0.0`) + HDBSCAN (`min_cluster_size=15`, `min_samples=5`, `cluster_selection_method="eom"`). Replaces KMeans+silhouette sweep (T-09, May 14 2026). Prototype notebook: `notebooks/bertopic_hdbscan_prototype.ipynb`. PM sign-off: Lucas (pending PR review).
+- **Why HDBSCAN:** density-based, no predefined `k`, handles variable-size themes, produces membership probabilities natively (feed into T-10 hybrid chunk selection). Prototype on Notion synthetic corpus: 8 clusters at silhouette 0.48 (UMAP-5D) vs KMeans 0.47 with only 4 forced-equal partitions.
+- **Noise fallback:** HDBSCAN refuses to assign ~7–18% of chunks (`topic_id = -1`). Each noise chunk is reassigned to its nearest cluster by cosine similarity to the cluster mean embedding, with membership capped at 0.5 so true core members stay ranked higher in `representative_chunks`. This preserves the "every chunk has a cluster_id" contract that `source_map.py` and `odi_scorer.py` rely on.
+- **KMeans fallback:** Corpora with fewer than 50 chunks fall back to the legacy KMeans path (same output shape, rank-based pseudo-membership in `[0.1, 1.0]`). HDBSCAN cannot find density-rich regions reliably below this size.
+- **`representative_chunks` semantics changed.** Previously "top 3 closest to centroid" (KMeans). Now "top 3 by HDBSCAN membership probability". Type and length are unchanged — `llm.py` continues to work without modification.
+- **`boundary_chunks` and `membership_scores` are new** (T-09). Both will be consumed by T-10 for hybrid chunk selection. Older modules can ignore these fields safely (they are extra keys in the dict, no contract break).
+- **Determinism:** `random_state=42` fixed. UMAP's parallel implementation introduces ±2–3% silhouette variance run-to-run; cluster membership of any given chunk is stable for the same input.
 
 ---
 
