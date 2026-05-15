@@ -78,23 +78,14 @@ def _load_system_prompt() -> str:
     return _SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
-def _build_user_message(clusters: list[dict], goal: str) -> str:
+def _build_user_message(clusters: list[dict], goal: str, context_block: str = "") -> str:
     """
-    Format the user message sent to the LLM.
-
     T-10 hybrid chunk selection: each cluster contributes 3 chunks total —
     the top 2 by HDBSCAN membership probability (cluster core, theme signal)
-    plus 1 boundary chunk (lowest membership, texture/outlier language). This
-    gives the model both what the cluster is *about* and how it actually
-    *sounds*, without exposing the model to the full cluster_size of chunks.
+    plus 1 boundary chunk (lowest membership, texture/outlier language).
 
-    cluster_size is also passed so the model can calibrate jtbd_confidence
-    against the breadth of evidence per Rule 9.
-
-    Only cluster_id, representative_chunks, and cluster_size are sent — never
-    all_chunk_ids, which would bloat the context window. The boundary chunk is
-    appended to representative_chunks (rather than sent as a separate field)
-    to keep the prompt schema and few-shot examples stable.
+    cluster_size is passed so the model can calibrate jtbd_confidence per Rule 9.
+    context_block is appended after cluster evidence if non-empty, omitted if empty.
     """
 
     def _format_chunk(chunk: dict) -> dict:
@@ -102,13 +93,8 @@ def _build_user_message(clusters: list[dict], goal: str) -> str:
 
     slim_clusters: list[dict] = []
     for c in clusters:
-        # T-09 clusterer.py sorts representative_chunks by membership descending,
-        # so [:2] is the top 2 by probability — the cluster "core".
         core_chunks = [_format_chunk(ch) for ch in c["representative_chunks"][:2]]
 
-        # boundary_chunks contains 1 chunk with the lowest membership probability.
-        # If the cluster is degenerate (e.g. KMeans fallback on tiny corpus
-        # produced no boundary), fall back to using the next representative_chunk.
         boundary_list = c.get("boundary_chunks") or []
         if boundary_list:
             boundary_chunk = _format_chunk(boundary_list[0])
@@ -117,9 +103,6 @@ def _build_user_message(clusters: list[dict], goal: str) -> str:
         else:
             boundary_chunk = None
 
-        # Compose: 2 core + 1 boundary = 3 chunks, same total count as before.
-        # The model receives them under the existing "representative_chunks" key
-        # so the prompt schema and few-shot examples remain unchanged.
         chunks_for_prompt = core_chunks + ([boundary_chunk] if boundary_chunk else [])
 
         slim_clusters.append(
@@ -130,7 +113,10 @@ def _build_user_message(clusters: list[dict], goal: str) -> str:
             }
         )
 
-    return f"Goal: {goal}\n\n" f"Clusters:\n{json.dumps(slim_clusters, indent=2)}"
+    msg = f"Goal: {goal}\n\nClusters:\n{json.dumps(slim_clusters, indent=2)}"
+    if context_block:
+        msg += f"\n\nStakeholder context:\n{context_block}"
+    return msg
 
 
 def _call_groq(client: Groq, model: str, system: str, user: str) -> str:
@@ -468,6 +454,7 @@ def build_ost(
     clusters: list[dict],
     scored_clusters: list[dict],
     goal: str,
+    context_block: str = "",
 ) -> dict:
     """
     Call Groq to generate JTBD + solutions for each cluster, then validate
@@ -487,6 +474,11 @@ def build_ost(
         clusters:        output of clusterer.py
         scored_clusters: output of odi_scorer.py — must be populated before calling
         goal:            product goal string from st.session_state["goal"]
+        context_block:   optional stakeholder/constraint context from
+                         st.session_state["context_block"]. Max 500 words —
+                         truncated upstream in upload.py before storage.
+                         Injected after cluster evidence in the user message.
+                         Omitted entirely if empty — no change to prompt shape.
 
     Returns:
         OST dict matching the approved schema in docs/llm_output_schema.json
@@ -497,12 +489,13 @@ def build_ost(
     """
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
     system = _load_system_prompt()
-    user = _build_user_message(clusters, goal)
+    user = _build_user_message(clusters, goal, context_block)
 
     # We track the primary failure reason as a string so the final RuntimeError
     # (if both models fail) can explain exactly what went wrong at each stage.
     primary_failure_reason: str | None = None
     ost: dict | None = None
+    used_fallback: bool = False
 
     # ── Primary model attempt ─────────────────────────────────────────────────
 
@@ -583,6 +576,12 @@ def build_ost(
             ) from e
 
         ost = ost_fallback
+        used_fallback = True
+
+    # ── Tag whether the fallback model was used ───────────────────────────────
+    # results.py reads ost["_meta"]["used_fallback"] to show a quality notice.
+    # Written here — after both model paths — so the flag is always present.
+    ost["_meta"] = {"used_fallback": used_fallback}
 
     # ── Deterministic confidence override for sparse clusters ─────────────────
     # Must run after _validate_ost (fields confirmed present) and before
