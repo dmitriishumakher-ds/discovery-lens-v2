@@ -307,6 +307,7 @@ with tab_ost:
                 f'{" · ".join(ev_types)}</span></div></div>',
                 unsafe_allow_html=True,
             )
+            st.caption("Showing the top 3 representative quotes. The JTBD and assumption risk ratings were generated from these quotes.")
             ev_cols = st.columns(min(len(evidence_chunks), 3))
             for i, (cid, ch) in enumerate(evidence_chunks[:3]):
                 src  = ch.get("source_type", "")
