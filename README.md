@@ -1,7 +1,11 @@
-# discovery-lens
+---
+title: Discovery Lens
+emoji: 🔍
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
 
-[Project Plan](https://lookus22.github.io/discovery-lens/)
+# Discovery Lens
 
-# Setup
-
-cp .env.example .env # then fill in your API key
