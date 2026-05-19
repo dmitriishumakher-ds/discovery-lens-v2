@@ -144,6 +144,14 @@ if not is_demo:
             "retried with the smaller fallback model. JTBD statements may be less detailed than usual."
         )
 
+    # 4 — Threshold calibration reminder (always shown on real runs)
+    notices.append(
+        "📊 **Recommendation labels are calibrated to this corpus.** "
+        "Act / Validate / Monitor / Deprioritise thresholds (ODI ≥ 0.10, robustness ≥ 0.40) "
+        "were set against synthetic demo data. Use them to compare opportunities relative to "
+        "each other within this session — not as absolute benchmarks across projects or teams."
+    )
+
     for msg in notices:
         st.warning(msg)
 

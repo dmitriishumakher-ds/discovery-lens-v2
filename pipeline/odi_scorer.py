@@ -124,8 +124,16 @@ KNOWN_SOURCE_TYPES_COUNT: int = len(KNOWN_SOURCE_TYPES)
 
 def _score_to_compound(result: dict) -> float:
     """
-    Convert lxyuan output to a -1…1 compound score analogous to VADER.
-    positive → +score, negative → -score, neutral → 0
+    Convert lxyuan output dict to a continuous score in [-1, 1].
+
+    lxyuan returns {"label": "positive"|"negative"|"neutral", "score": float}.
+    Mapping:
+        positive → +score   (confidence as positive signal, range  0 to +1)
+        negative → -score   (confidence as negative signal, range -1 to  0)
+        neutral  →  0.0     (no directional signal)
+
+    The resulting value is averaged across chunks in a cluster and rescaled
+    to [0, 1] via (x + 1) / 2 to produce the satisfaction signal.
     """
     label = result["label"].lower()
     score = result["score"]
@@ -243,6 +251,8 @@ def score_clusters(
     --- ODI score (unmet need signal) ---
     importance   = cluster_size / total_chunks          range 0-1
     satisfaction = (avg_sentiment_compound + 1) / 2    range 0-1
+                   where avg_sentiment_compound = mean of _score_to_compound()
+                   across all chunks in the cluster (lxyuan output, not VADER)
     odi_score    = importance x (1 - satisfaction)      range 0-1
 
     --- Evidence robustness (cross-source corroboration) ---

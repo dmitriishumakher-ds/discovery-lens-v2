@@ -13,7 +13,7 @@ sentence-transformers>=2.7.0
 # Clustering & ML
 scikit-learn>=1.4.0
 numpy>=1.26.0
-# T-09: density-based clustering
+# Density-based clustering
 bertopic>=0.16.0
 hdbscan>=0.8.40
 umap-learn>=0.5.5
