@@ -171,6 +171,21 @@ Built by [Lucas](https://github.com/Lookus22), [Mengda](https://github.com/XX202
 
 ---
 
+## Presentation
+
+Full capstone presentation (May 2026): [Discovery_Lens_final.pdf](docs/Discovery_Lens_final.pdf)
+
+### Slides
+
+![Title](docs/slides/slide_01_title.png)
+![Live Demo](docs/slides/slide_02_demo.png)
+![Pipeline](docs/slides/slide_03_pipeline.png)
+![Scoring System](docs/slides/slide_04_scoring.png)
+![Roadmap](docs/slides/slide_05_roadmap.png)
+![Thank You](docs/slides/slide_06_thankyou.png)
+
+---
+
 ## License
 
 [MIT](LICENSE)
